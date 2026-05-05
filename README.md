@@ -187,7 +187,7 @@ Need the export steps? Start here:
 
 ## PyPI
 
-The PyPI package name is `inbox-report`. Publishing is local-only; this repository does not ship a GitHub Actions release workflow.
+The PyPI package name is `inbox-report`. Publishing is local-only; this repository does not ship an automated release workflow.
 
 Build and validate the release artifacts:
 
