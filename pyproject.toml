@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inbox-report"
+version = "1.0.1"
+description = "Turn local mailbox exports into job, COOP, and Tamheer application reports."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+  { name = "gqnxx" }
+]
+maintainers = [
+  { name = "Mara Org" }
+]
+keywords = [
+  "email",
+  "mbox",
+  "eml",
+  "coop",
+  "tamheer",
+  "job-applications",
+  "saudi-arabia"
+]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Communications :: Email",
+  "Topic :: Office/Business"
+]
+
+[project.optional-dependencies]
+pdf = [
+  "reportlab>=4.0",
+  "arabic-reshaper>=3.0",
+  "python-bidi>=0.6"
+]
+dev = [
+  "build>=1.2",
+  "twine>=5.0"
+]
+
+[project.scripts]
+inbox-report = "inbox_application_reporter:main"
+
+[project.urls]
+Homepage = "https://github.com/mara-org/inbox-report"
+Repository = "https://github.com/mara-org/inbox-report"
+Issues = "https://github.com/mara-org/inbox-report/issues"
+
+[tool.setuptools]
+py-modules = ["inbox_application_reporter"]

@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+venv/
+env/
+.demo/
+reports/
+dist/
+build/
+*.egg-info/
+
+# Mailbox exports and generated reports can contain private data.
+*.mbox
+*.mbox.lock
+applications.csv
+applications_summary.csv
+applications_report.html
+applications_report.pdf
+details.csv
+companies.csv
+report.html
+report.pdf
