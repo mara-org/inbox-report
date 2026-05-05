@@ -2,7 +2,7 @@
 
 The package metadata is ready for PyPI project `inbox-report` at the current version in `pyproject.toml`.
 
-Publishing is local-only. This repository intentionally does not include a GitHub Actions release workflow.
+Publishing is local-only. This repository intentionally does not include an automated release workflow.
 
 Do not paste a PyPI password or token into chat, issues, commits, or repository settings.
 
