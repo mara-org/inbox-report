@@ -685,6 +685,59 @@ APPLICATION_TYPE_PATTERNS = [
     ),
 ]
 
+APPLICATION_TYPE_LABELS = {
+    "career_portal": "Career portal",
+    "coop": "Co-op training",
+    "graduate_program": "Graduate program",
+    "internship": "Internship",
+    "job": "Job application",
+    "tamheer": "Tamheer",
+    "training": "Training program",
+    "unknown_application": "Application",
+}
+
+STATUS_LABELS = {
+    "action_required": "Action required",
+    "closed_or_full": "Closed or full",
+    "ineligible": "Ineligible",
+    "interview": "Interview",
+    "offer_or_accepted": "Offer or accepted",
+    "possible_application": "Needs review",
+    "rejected": "Not selected",
+    "start_or_onboarding": "Start or onboarding",
+    "submitted_or_received": "Application received",
+    "under_review": "Under review",
+}
+
+REVIEW_BUCKET_LABELS = {
+    "auto_classified": "Auto classified",
+    "needs_review": "Needs review",
+}
+
+PLATFORM_OR_GENERIC_SENDER_NAMES = {
+    "greenhouse",
+    "lever",
+    "smartrecruiters",
+    "successfactors",
+    "system",
+    "taleo",
+    "workday",
+}
+
+REFERENCE_PATTERNS = [
+    (r"\bJob Requisition\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]{1,30})", "Job Requisition"),
+    (r"\bApplication\s*(?:ID|Id|No\.?|Number|#)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]{1,40})", "Application ID"),
+    (r"\bApp\s*(?:ID|Id|#)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]{1,40})", "App ID"),
+    (r"\b(?:Job|Req|Requisition|Position)\s*(?:ID|Id|No\.?|Number|#)\s*[:#-]?\s*([A-Za-z0-9][A-Za-z0-9._/-]{1,40})", "Reference"),
+    (r"\(ID:\s*([A-Za-z0-9][A-Za-z0-9._/-]{1,30})\)", "ID"),
+    (r"\((\d{3,12})\)", "Reference"),
+    (r"\bjob\s+[A-Za-z][A-Za-z0-9 &/().,'+-]{2,80}?\s*[-–]\s*(\d{3,12})\b", "Job"),
+    (r"\bposition\s+[A-Za-z][A-Za-z0-9 &/().,'+-]{2,80}?\s*[-–]\s*(\d{3,12})\b", "Position"),
+    (r"\bcareer_job_req_id=([A-Za-z0-9._/-]{1,40})", "Job Requisition"),
+    (r"\bfbja_appId=([A-Za-z0-9._/-]{1,40})", "Application ID"),
+    (r"رقم\s+(?:الطلب|التقديم|الوظيفة|الإعلان|الاعلان)\s*[:#-]?\s*([A-Za-z0-9\u0660-\u0669][A-Za-z0-9\u0660-\u0669._/-]{1,40})", "رقم الطلب"),
+]
+
 URL_RE = re.compile(r"https?://[^\s<>\")\]]+", re.IGNORECASE)
 TAG_RE = re.compile(r"<[^>]+>")
 SPACE_RE = re.compile(r"\s+")
@@ -712,6 +765,7 @@ class ApplicationEmail:
     organization_guess: str
     subject: str
     application_type: str
+    application_reference: str
     status: str
     confidence: str
     review_bucket: str
@@ -772,6 +826,37 @@ def org_from_domain(domain: str) -> str:
     return domain.title()
 
 
+def is_platform_sender(sender_name: str, sender_domain: str) -> bool:
+    name_words = {
+        word.lower()
+        for word in re.split(r"[^A-Za-z0-9]+", sender_name)
+        if word.strip()
+    }
+    domain = sender_domain.lower()
+    return bool(name_words & PLATFORM_OR_GENERIC_SENDER_NAMES) or domain in GENERIC_DOMAINS
+
+
+def org_from_text(subject: str, body: str) -> str:
+    patterns = [
+        r"\brole of [A-Za-z0-9& /().,'+-]{2,100}?\s+at\s+([A-Z][A-Za-z0-9& '-]{2,60})",
+        r"\bposition of [A-Za-z0-9& /().,'+-]{2,100}?\s+at\s+([A-Z][A-Za-z0-9& '-]{2,60})",
+        r"\bopportunity at\s+([A-Z][A-Za-z0-9& '-]{2,60})",
+        r"\bapplication to\s+([A-Z][A-Za-z0-9& '-]{2,60})",
+        r"\bapplication at\s+([A-Z][A-Za-z0-9& '-]{2,60})",
+        r"\bapplying to\s+([A-Z][A-Za-z0-9& '-]{2,60})",
+        r"\bapplying for [A-Za-z0-9& /().,'+-]{2,100}?\s+at\s+([A-Z][A-Za-z0-9& '-]{2,60})",
+        r"\bthank you for applying to\s+([A-Z][A-Za-z0-9& '-]{2,60})",
+        r"لدى\s+([\u0600-\u06FF A-Za-z0-9& .'-]{2,60})",
+        r"في\s+([\u0600-\u06FF A-Za-z0-9& .'-]{2,60})",
+    ]
+    haystack = f"{subject}\n{body[:3000]}"
+    for pattern in patterns:
+        match = re.search(pattern, haystack)
+        if match:
+            return SPACE_RE.sub(" ", match.group(1)).strip(" .:-")
+    return ""
+
+
 def guess_org(sender_name: str, sender_domain: str, subject: str, body: str) -> str:
     clean_name = sender_name.strip().strip('"')
     clean_name = re.sub(
@@ -783,23 +868,17 @@ def guess_org(sender_name: str, sender_domain: str, subject: str, body: str) -> 
     for generic_word in GENERIC_ARABIC_SENDER_WORDS:
         clean_name = clean_name.replace(generic_word, "")
     clean_name = SPACE_RE.sub(" ", clean_name).strip(" -_|")
+    text_org = org_from_text(subject, body)
+    if text_org and is_platform_sender(clean_name, sender_domain):
+        return text_org
     if clean_name and "@" not in clean_name and len(clean_name) > 2:
         return clean_name
 
     if sender_domain and sender_domain not in GENERIC_DOMAINS:
         return org_from_domain(sender_domain)
 
-    patterns = [
-        r"at\s+([A-Z][A-Za-z0-9& .'-]{2,60})",
-        r"from\s+([A-Z][A-Za-z0-9& .'-]{2,60})",
-        r"لدى\s+([\u0600-\u06FF A-Za-z0-9& .'-]{2,60})",
-        r"في\s+([\u0600-\u06FF A-Za-z0-9& .'-]{2,60})",
-    ]
-    haystack = f"{subject}\n{body[:2000]}"
-    for pattern in patterns:
-        match = re.search(pattern, haystack)
-        if match:
-            return SPACE_RE.sub(" ", match.group(1)).strip(" .:-")
+    if text_org:
+        return text_org
 
     return sender_domain or "unknown"
 
@@ -849,6 +928,42 @@ def clip_text(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return value[: max(0, limit - 3)].rstrip() + "..."
+
+
+def extract_application_reference(text: str) -> str:
+    references: list[str] = []
+    seen: set[str] = set()
+    for pattern, label in REFERENCE_PATTERNS:
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            value = SPACE_RE.sub(" ", match.group(1)).strip(" .,:;()[]")
+            if not value:
+                continue
+            entry = f"{label} {value}"
+            key = entry.lower()
+            if key not in seen:
+                references.append(entry)
+                seen.add(key)
+            if len(references) >= 4:
+                return " | ".join(references)
+    return " | ".join(references)
+
+
+def display_application_type(value: str, friendly_labels: bool = False) -> str:
+    if not friendly_labels:
+        return value
+    return APPLICATION_TYPE_LABELS.get(value, value.replace("_", " ").title())
+
+
+def display_status(value: str, friendly_labels: bool = False) -> str:
+    if not friendly_labels:
+        return value
+    return STATUS_LABELS.get(value, value.replace("_", " ").title())
+
+
+def display_review_bucket(value: str, friendly_labels: bool = False) -> str:
+    if not friendly_labels:
+        return value
+    return REVIEW_BUCKET_LABELS.get(value, value.replace("_", " ").title())
 
 
 def contains_term(lowered_text: str, term: str) -> bool:
@@ -999,6 +1114,7 @@ def message_to_record(message: Message, include_weak: bool = False) -> Applicati
     organization = guess_org(sender_name, sender_domain, subject, body)
     matched_terms = ", ".join(sorted(set(matched_application_terms + matched_ats_terms)))
     application_type = infer_application_type(searchable)
+    application_reference = extract_application_reference(searchable)
     confidence = infer_confidence(
         searchable,
         status,
@@ -1015,6 +1131,7 @@ def message_to_record(message: Message, include_weak: bool = False) -> Applicati
         organization_guess=organization,
         subject=subject,
         application_type=application_type,
+        application_reference=application_reference,
         status=status,
         confidence=confidence,
         review_bucket=infer_review_bucket(application_type, status, confidence),
@@ -1036,47 +1153,107 @@ def split_links(value: str) -> list[str]:
     return [link.strip() for link in value.split(" | ") if link.strip()]
 
 
-def build_summary(records: list[ApplicationEmail]) -> list[dict[str, str]]:
+def build_summary(
+    records: list[ApplicationEmail],
+    friendly_labels: bool = False,
+    hide_status: bool = False,
+) -> list[dict[str, str]]:
     grouped: dict[str, list[ApplicationEmail]] = defaultdict(list)
     for record in records:
         grouped[record.organization_guess].append(record)
 
     summary_rows: list[dict[str, str]] = []
     for organization, items in grouped.items():
-        status_counts = Counter(item.status for item in items)
-        type_counts = Counter(item.application_type for item in items)
-        review_counts = Counter(item.review_bucket for item in items)
+        status_counts = Counter(display_status(item.status, friendly_labels) for item in items)
+        type_counts = Counter(
+            display_application_type(item.application_type, friendly_labels) for item in items
+        )
+        review_counts = Counter(
+            display_review_bucket(item.review_bucket, friendly_labels) for item in items
+        )
         sorted_items = sorted(items, key=lambda item: item.date)
         domains = sorted({item.sender_domain for item in items if item.sender_domain})
-        summary_rows.append(
-            {
-                "organization_guess": organization,
-                "email_count": str(len(items)),
-                "first_seen": sorted_items[0].date,
-                "last_seen": sorted_items[-1].date,
-                "statuses": "; ".join(
-                    f"{status}:{count}" for status, count in status_counts.most_common()
-                ),
-                "application_types": "; ".join(
-                    f"{kind}:{count}" for kind, count in type_counts.most_common()
-                ),
-                "review_buckets": "; ".join(
-                    f"{bucket}:{count}" for bucket, count in review_counts.most_common()
-                ),
-                "domains": " | ".join(domains),
-                "latest_subject": sorted_items[-1].subject,
-            }
-        )
+        row = {
+            "organization_guess": organization,
+            "email_count": str(len(items)),
+            "first_seen": sorted_items[0].date,
+            "last_seen": sorted_items[-1].date,
+            "application_types": "; ".join(
+                f"{kind}:{count}" for kind, count in type_counts.most_common()
+            ),
+            "review_buckets": "; ".join(
+                f"{bucket}:{count}" for bucket, count in review_counts.most_common()
+            ),
+            "domains": " | ".join(domains),
+            "latest_subject": sorted_items[-1].subject,
+        }
+        if not hide_status:
+            row["statuses"] = "; ".join(
+                f"{status}:{count}" for status, count in status_counts.most_common()
+            )
+        summary_rows.append(row)
 
     return sorted(summary_rows, key=lambda row: row["organization_guess"].lower())
 
 
+def detail_fieldnames(hide_status: bool = False, hide_links: bool = False) -> list[str]:
+    fieldnames = list(ApplicationEmail.__dataclass_fields__.keys())
+    if hide_status:
+        fieldnames.remove("status")
+    if hide_links:
+        fieldnames.remove("links")
+    return fieldnames
+
+
+def summary_fieldnames(hide_status: bool = False) -> list[str]:
+    fieldnames = [
+        "organization_guess",
+        "email_count",
+        "first_seen",
+        "last_seen",
+        "statuses",
+        "application_types",
+        "review_buckets",
+        "domains",
+        "latest_subject",
+    ]
+    if hide_status:
+        fieldnames.remove("statuses")
+    return fieldnames
+
+
+def record_to_row(
+    record: ApplicationEmail,
+    friendly_labels: bool = False,
+    hide_status: bool = False,
+    hide_links: bool = False,
+) -> dict[str, str]:
+    row = record.__dict__.copy()
+    row["application_type"] = display_application_type(
+        record.application_type, friendly_labels
+    )
+    row["review_bucket"] = display_review_bucket(record.review_bucket, friendly_labels)
+    if not hide_status:
+        row["status"] = display_status(record.status, friendly_labels)
+    else:
+        row.pop("status", None)
+    if hide_links:
+        row.pop("links", None)
+    return row
+
+
 def write_html_report(
-    path: Path, records: list[ApplicationEmail], summary_rows: list[dict[str, str]]
+    path: Path,
+    records: list[ApplicationEmail],
+    summary_rows: list[dict[str, str]],
+    title: str = "Application Report",
+    hide_status: bool = False,
+    hide_links: bool = False,
+    friendly_labels: bool = False,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
-    status_counts = Counter(record.status for record in records)
+    status_counts = Counter(display_status(record.status, friendly_labels) for record in records)
 
     grouped: dict[str, list[ApplicationEmail]] = defaultdict(list)
     for record in records:
@@ -1085,10 +1262,12 @@ def write_html_report(
     def esc(value: str) -> str:
         return html.escape(value or "", quote=True)
 
-    status_items = "".join(
-        f"<span class=\"pill\">{esc(status)}: {count}</span>"
-        for status, count in status_counts.most_common()
-    )
+    status_items = ""
+    if not hide_status:
+        status_items = "".join(
+            f"<span class=\"pill\">{esc(status)}: {count}</span>"
+            for status, count in status_counts.most_common()
+        )
     empty_state = ""
     if not records:
         empty_state = """
@@ -1104,36 +1283,60 @@ def write_html_report(
         f"<td>{esc(row['email_count'])}</td>"
         f"<td>{esc(row['first_seen'])}</td>"
         f"<td>{esc(row['last_seen'])}</td>"
-        f"<td>{esc(row['statuses'])}</td>"
         f"<td>{esc(row['application_types'])}</td>"
         f"<td>{esc(row['review_buckets'])}</td>"
         f"<td>{esc(row['latest_subject'])}</td>"
         "</tr>"
         for row in summary_rows
     )
+    if not hide_status:
+        summary_html = "\n".join(
+            "<tr>"
+            f"<td>{esc(row['organization_guess'])}</td>"
+            f"<td>{esc(row['email_count'])}</td>"
+            f"<td>{esc(row['first_seen'])}</td>"
+            f"<td>{esc(row['last_seen'])}</td>"
+            f"<td>{esc(row['statuses'])}</td>"
+            f"<td>{esc(row['application_types'])}</td>"
+            f"<td>{esc(row['review_buckets'])}</td>"
+            f"<td>{esc(row['latest_subject'])}</td>"
+            "</tr>"
+            for row in summary_rows
+        )
 
     detail_sections: list[str] = []
     for organization, items in sorted(grouped.items(), key=lambda item: item[0].lower()):
         rows: list[str] = []
         for record in sorted(items, key=lambda item: item.date):
             links = split_links(record.links)
-            rendered_links = " ".join(
-                f"<a href=\"{esc(link)}\">link {index}</a>"
-                for index, link in enumerate(links, start=1)
-            )
+            rendered_links = ""
+            if not hide_links:
+                rendered_links = " ".join(
+                    f"<a href=\"{esc(link)}\">link {index}</a>"
+                    for index, link in enumerate(links, start=1)
+                )
+            status_cell = ""
+            if not hide_status:
+                status_cell = f"<td><span class=\"status\">{esc(display_status(record.status, friendly_labels))}</span></td>"
+            links_cell = ""
+            if not hide_links:
+                links_cell = f"<td dir=\"auto\">{rendered_links}</td>"
             rows.append(
                 "<tr>"
                 f"<td>{esc(record.date)}</td>"
-                f"<td>{esc(record.application_type)}</td>"
-                f"<td><span class=\"status\">{esc(record.status)}</span></td>"
+                f"<td>{esc(display_application_type(record.application_type, friendly_labels))}</td>"
+                f"<td>{esc(record.application_reference)}</td>"
+                f"{status_cell}"
                 f"<td>{esc(record.confidence)}</td>"
-                f"<td>{esc(record.review_bucket)}</td>"
+                f"<td>{esc(display_review_bucket(record.review_bucket, friendly_labels))}</td>"
                 f"<td dir=\"auto\">{esc(record.subject)}</td>"
                 f"<td dir=\"auto\">{esc(record.sender_name)}<br><small>{esc(record.sender_email)}</small></td>"
-                f"<td dir=\"auto\">{rendered_links}</td>"
+                f"{links_cell}"
                 f"<td dir=\"auto\">{esc(record.snippet)}</td>"
                 "</tr>"
             )
+        status_header = "" if hide_status else "<th>Status</th>"
+        links_header = "" if hide_links else "<th>Links</th>"
         detail_sections.append(
             f"""
             <section>
@@ -1143,12 +1346,13 @@ def write_html_report(
                   <tr>
                     <th>Date</th>
                     <th>Type</th>
-                    <th>Status</th>
+                    <th>Reference</th>
+                    {status_header}
                     <th>Confidence</th>
                     <th>Review</th>
                     <th>Subject</th>
                     <th>Sender</th>
-                    <th>Links</th>
+                    {links_header}
                     <th>Snippet</th>
                   </tr>
                 </thead>
@@ -1162,7 +1366,7 @@ def write_html_report(
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Inbox Application Report</title>
+  <title>{esc(title)}</title>
   <style>
     body {{
       color: #111827;
@@ -1199,7 +1403,7 @@ def write_html_report(
   </style>
 </head>
 <body>
-  <h1>Inbox Application Report</h1>
+  <h1>{esc(title)}</h1>
   <p class="meta">Generated {esc(generated_at)}. Found {len(records)} likely application emails across {len(summary_rows)} organizations.</p>
   <div class="pills">{status_items}</div>
   {empty_state}
@@ -1212,7 +1416,7 @@ def write_html_report(
         <th>Emails</th>
         <th>First Seen</th>
         <th>Last Seen</th>
-        <th>Statuses</th>
+        {'' if hide_status else '<th>Statuses</th>'}
         <th>Types</th>
         <th>Review</th>
         <th>Latest Subject</th>
@@ -1274,7 +1478,13 @@ def register_pdf_fonts() -> tuple[str, str]:
 
 
 def write_pdf_report(
-    path: Path, records: list[ApplicationEmail], summary_rows: list[dict[str, str]]
+    path: Path,
+    records: list[ApplicationEmail],
+    summary_rows: list[dict[str, str]],
+    title: str = "Application Report",
+    hide_status: bool = False,
+    hide_links: bool = False,
+    friendly_labels: bool = False,
 ) -> bool:
     try:
         from reportlab.lib import colors
@@ -1349,7 +1559,7 @@ def write_pdf_report(
     )
 
     flowables = [
-        pdf_paragraph("Inbox Application Report", styles["ReportTitle"]),
+        pdf_paragraph(title, styles["ReportTitle"]),
         pdf_paragraph(
             f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}. "
             f"Found {len(records)} likely application emails across {len(summary_rows)} organizations.",
@@ -1358,12 +1568,15 @@ def write_pdf_report(
         Spacer(1, 10),
     ]
 
-    status_counts = Counter(record.status for record in records)
-    status_line = " | ".join(
-        f"{status}: {count}" for status, count in status_counts.most_common()
-    )
-    flowables.append(pdf_paragraph(status_line or "No application emails found.", styles["ReportBody"]))
-    flowables.append(Spacer(1, 12))
+    if not hide_status:
+        status_counts = Counter(display_status(record.status, friendly_labels) for record in records)
+        status_line = " | ".join(
+            f"{status}: {count}" for status, count in status_counts.most_common()
+        )
+        flowables.append(
+            pdf_paragraph(status_line or "No application emails found.", styles["ReportBody"])
+        )
+        flowables.append(Spacer(1, 12))
     if not records:
         flowables.append(pdf_paragraph("No likely application emails found", styles["SectionTitle"]))
         flowables.append(
@@ -1378,44 +1591,52 @@ def write_pdf_report(
 
     flowables.append(pdf_paragraph("Organization Summary", styles["SectionTitle"]))
 
-    summary_table_data = [
+    summary_header = [
+        pdf_paragraph("Organization", styles["TableHeader"]),
+        pdf_paragraph("Emails", styles["TableHeader"]),
+        pdf_paragraph("First Seen", styles["TableHeader"]),
+        pdf_paragraph("Last Seen", styles["TableHeader"]),
+    ]
+    if not hide_status:
+        summary_header.append(pdf_paragraph("Statuses", styles["TableHeader"]))
+    summary_header.extend(
         [
-            pdf_paragraph("Organization", styles["TableHeader"]),
-            pdf_paragraph("Emails", styles["TableHeader"]),
-            pdf_paragraph("First Seen", styles["TableHeader"]),
-            pdf_paragraph("Last Seen", styles["TableHeader"]),
-            pdf_paragraph("Statuses", styles["TableHeader"]),
             pdf_paragraph("Types", styles["TableHeader"]),
             pdf_paragraph("Review", styles["TableHeader"]),
             pdf_paragraph("Latest Subject", styles["TableHeader"]),
         ]
-    ]
+    )
+    summary_table_data = [summary_header]
     for row in summary_rows:
-        summary_table_data.append(
+        summary_row = [
+            pdf_paragraph(row["organization_guess"], styles["ReportBody"]),
+            pdf_paragraph(row["email_count"], styles["ReportBody"]),
+            pdf_paragraph(row["first_seen"], styles["ReportBody"]),
+            pdf_paragraph(row["last_seen"], styles["ReportBody"]),
+        ]
+        if not hide_status:
+            summary_row.append(pdf_paragraph(row["statuses"], styles["ReportBody"]))
+        summary_row.extend(
             [
-                pdf_paragraph(row["organization_guess"], styles["ReportBody"]),
-                pdf_paragraph(row["email_count"], styles["ReportBody"]),
-                pdf_paragraph(row["first_seen"], styles["ReportBody"]),
-                pdf_paragraph(row["last_seen"], styles["ReportBody"]),
-                pdf_paragraph(row["statuses"], styles["ReportBody"]),
                 pdf_paragraph(row["application_types"], styles["ReportBody"]),
                 pdf_paragraph(row["review_buckets"], styles["ReportBody"]),
                 pdf_paragraph(clip_text(row["latest_subject"], 90), styles["ReportBody"]),
             ]
         )
+        summary_table_data.append(summary_row)
 
+    summary_widths = [
+        1.05 * inch,
+        0.4 * inch,
+        0.65 * inch,
+        0.65 * inch,
+    ]
+    if not hide_status:
+        summary_widths.append(0.95 * inch)
+    summary_widths.extend([0.75 * inch, 0.75 * inch, 1.35 * inch])
     summary_table = Table(
         summary_table_data,
-        colWidths=[
-            1.05 * inch,
-            0.4 * inch,
-            0.65 * inch,
-            0.65 * inch,
-            0.95 * inch,
-            0.75 * inch,
-            0.75 * inch,
-            1.35 * inch,
-        ],
+        colWidths=summary_widths,
         repeatRows=1,
     )
     summary_table.setStyle(
@@ -1445,14 +1666,16 @@ def write_pdf_report(
             links = split_links(record.links)
             detail_lines = [
                 f"Date: {record.date}",
-                f"Type: {record.application_type}",
-                f"Status: {record.status}",
+                f"Type: {display_application_type(record.application_type, friendly_labels)}",
+                f"Reference: {record.application_reference or 'not found'}",
                 f"Confidence: {record.confidence}",
-                f"Review: {record.review_bucket}",
+                f"Review: {display_review_bucket(record.review_bucket, friendly_labels)}",
                 f"Subject: {record.subject}",
                 f"From: {record.sender_name} <{record.sender_email}>",
             ]
-            if links:
+            if not hide_status:
+                detail_lines.insert(2, f"Status: {display_status(record.status, friendly_labels)}")
+            if links and not hide_links:
                 detail_lines.append(f"Links: {clip_text(' | '.join(links), 180)}")
             if record.snippet:
                 detail_lines.append(f"Snippet: {clip_text(record.snippet, 320)}")
@@ -1585,6 +1808,42 @@ def read_application_records(path: Path, include_weak: bool = False) -> list[App
     return records
 
 
+def parse_filter_date(value: str) -> datetime:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            f"expected YYYY-MM-DD date, got {value!r}"
+        ) from error
+
+
+def record_datetime(record: ApplicationEmail) -> datetime | None:
+    if not record.date:
+        return None
+    try:
+        return datetime.strptime(record.date[:10], "%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def filter_records(
+    records: list[ApplicationEmail],
+    after: datetime | None = None,
+    exclude_orgs: Sequence[str] | None = None,
+) -> list[ApplicationEmail]:
+    excluded = {org.casefold() for org in (exclude_orgs or [])}
+    filtered: list[ApplicationEmail] = []
+    for record in records:
+        if after is not None:
+            parsed_date = record_datetime(record)
+            if parsed_date is None or parsed_date < after:
+                continue
+        if record.organization_guess.casefold() in excluded:
+            continue
+        filtered.append(record)
+    return filtered
+
+
 def resolve_output_paths(args: argparse.Namespace) -> argparse.Namespace:
     output_dir = args.out.parent
     if args.summary_out is None:
@@ -1651,6 +1910,40 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Audit mode: include weak keyword matches that strict mode filters out",
     )
     parser.add_argument(
+        "--after",
+        type=parse_filter_date,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Only include messages on or after this date",
+    )
+    parser.add_argument(
+        "--exclude-org",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="Exclude an organization from outputs; repeat for multiple organizations",
+    )
+    parser.add_argument(
+        "--title",
+        default="Application Report",
+        help='Report title for HTML/PDF outputs; default: "Application Report"',
+    )
+    parser.add_argument(
+        "--hide-status",
+        action="store_true",
+        help="Hide status columns and status summaries from CSV/HTML/PDF outputs",
+    )
+    parser.add_argument(
+        "--hide-links",
+        action="store_true",
+        help="Hide extracted links from detailed CSV/HTML/PDF outputs",
+    )
+    parser.add_argument(
+        "--friendly-labels",
+        action="store_true",
+        help="Use user-friendly labels for application types, statuses, and review buckets",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="Only write output files; suppress normal completion messages",
@@ -1669,30 +1962,48 @@ def main() -> int:
     except ValueError as error:
         print(f"input error: {error}", file=sys.stderr)
         return 2
-    detail_rows = [record.__dict__ for record in records]
-    fieldnames = list(ApplicationEmail.__dataclass_fields__.keys())
-    summary_rows = build_summary(records)
-    write_csv(args.out, detail_rows, fieldnames)
+    records = filter_records(records, after=args.after, exclude_orgs=args.exclude_org)
+    detail_rows = [
+        record_to_row(
+            record,
+            friendly_labels=args.friendly_labels,
+            hide_status=args.hide_status,
+            hide_links=args.hide_links,
+        )
+        for record in records
+    ]
+    summary_rows = build_summary(
+        records,
+        friendly_labels=args.friendly_labels,
+        hide_status=args.hide_status,
+    )
+    write_csv(args.out, detail_rows, detail_fieldnames(args.hide_status, args.hide_links))
     write_csv(
         args.summary_out,
         summary_rows,
-        [
-            "organization_guess",
-            "email_count",
-            "first_seen",
-            "last_seen",
-            "statuses",
-            "application_types",
-            "review_buckets",
-            "domains",
-            "latest_subject",
-        ],
+        summary_fieldnames(args.hide_status),
     )
-    write_html_report(args.html_out, records, summary_rows)
+    write_html_report(
+        args.html_out,
+        records,
+        summary_rows,
+        title=args.title,
+        hide_status=args.hide_status,
+        hide_links=args.hide_links,
+        friendly_labels=args.friendly_labels,
+    )
 
     wrote_pdf = False
     if not args.no_pdf:
-        wrote_pdf = write_pdf_report(args.pdf_out, records, summary_rows)
+        wrote_pdf = write_pdf_report(
+            args.pdf_out,
+            records,
+            summary_rows,
+            title=args.title,
+            hide_status=args.hide_status,
+            hide_links=args.hide_links,
+            friendly_labels=args.friendly_labels,
+        )
 
     if not args.quiet:
         mode = "audit/include-weak" if args.include_weak else "strict"

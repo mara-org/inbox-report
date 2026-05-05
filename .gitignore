@@ -6,6 +6,7 @@ venv/
 env/
 .demo/
 reports/
+private-input/
 dist/
 build/
 *.egg-info/

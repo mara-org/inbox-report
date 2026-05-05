@@ -11,12 +11,17 @@ from pathlib import Path
 import inbox_application_reporter as reporter
 
 
-def make_message(sender: str, subject: str, body: str) -> EmailMessage:
+def make_message(
+    sender: str,
+    subject: str,
+    body: str,
+    date: str = "Fri, 01 May 2026 12:00:00 +0000",
+) -> EmailMessage:
     msg = EmailMessage()
     msg["From"] = sender
     msg["To"] = "candidate@example.com"
     msg["Subject"] = subject
-    msg["Date"] = "Fri, 01 May 2026 12:00:00 +0000"
+    msg["Date"] = date
     msg.set_content(body)
     return msg
 
@@ -206,6 +211,87 @@ class ReporterTests(unittest.TestCase):
         self.assertEqual(record.review_bucket, "auto_classified")
         self.assertIn("https://careers.examplecorp.com/app/123", record.links)
 
+    def test_extracts_application_reference_numbers(self) -> None:
+        msg = make_message(
+            "System <system@successfactors.eu>",
+            "PwC Careers: Thank you for your Application",
+            (
+                "Thank you for applying to PwC Middle East. "
+                "Job Requisition: 10162. "
+                "View your application at https://example.test/?fbja_appId=368303"
+            ),
+        )
+
+        record = reporter.message_to_record(msg)
+
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertIn("Job Requisition 10162", record.application_reference)
+        self.assertIn("Application ID 368303", record.application_reference)
+
+    def test_extracts_arabic_application_reference_number(self) -> None:
+        msg = make_message(
+            "Recruiting <jobs@example.com.sa>",
+            "تم استلام طلب التدريب التعاوني",
+            "تم استلام طلبك لبرنامج التدريب التعاوني. رقم الطلب: 987654.",
+        )
+
+        record = reporter.message_to_record(msg)
+
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertIn("987654", record.application_reference)
+
+    def test_platform_sender_uses_real_company_from_body(self) -> None:
+        msg = make_message(
+            "Workday <noreply@myworkdayjobs.com>",
+            "Application update",
+            "Thanks for applying for the role of Data Intern at Northstar. Your application will be reviewed.",
+        )
+
+        record = reporter.message_to_record(msg)
+
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertEqual(record.organization_guess, "Northstar")
+
+    def test_filters_records_after_date_and_excluded_org(self) -> None:
+        old_msg = make_message(
+            "Careers <jobs@oldco.example>",
+            "Application received",
+            "Thank you for applying to our internship.",
+            date="Wed, 31 Dec 2025 12:00:00 +0000",
+        )
+        kept_msg = make_message(
+            "Careers <jobs@keepco.example>",
+            "Application received",
+            "Thank you for applying to our internship.",
+            date="Thu, 01 Jan 2026 12:00:00 +0000",
+        )
+        excluded_msg = make_message(
+            "Careers <jobs@skipco.example>",
+            "Application received",
+            "Thank you for applying to our internship.",
+            date="Fri, 02 Jan 2026 12:00:00 +0000",
+        )
+        records = [
+            record
+            for record in (
+                reporter.message_to_record(old_msg),
+                reporter.message_to_record(kept_msg),
+                reporter.message_to_record(excluded_msg),
+            )
+            if record is not None
+        ]
+
+        filtered = reporter.filter_records(
+            records,
+            after=reporter.parse_filter_date("2026-01-01"),
+            exclude_orgs=["Skipco"],
+        )
+
+        self.assertEqual([record.organization_guess for record in filtered], ["Keepco"])
+
     def test_ignores_regular_email(self) -> None:
         msg = make_message(
             "Friend <friend@example.net>",
@@ -319,6 +405,52 @@ class ReporterTests(unittest.TestCase):
             self.assertEqual(rows[0]["status"], "action_required")
             self.assertEqual(rows[0]["review_bucket"], "needs_review")
             self.assertIn("Futurebank", html.read_text(encoding="utf-8"))
+
+    def test_can_hide_status_and_links_in_outputs(self) -> None:
+        msg = make_message(
+            "Talent <jobs@futurebank.example>",
+            "Action required for your graduate program application",
+            "Please complete your assessment: https://futurebank.example/assessment",
+        )
+        record = reporter.message_to_record(msg)
+        self.assertIsNotNone(record)
+        records = [record]
+        summary_rows = reporter.build_summary(records, hide_status=True)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            details = tmp_path / "applications.csv"
+            html = tmp_path / "report.html"
+            reporter.write_csv(
+                details,
+                [
+                    reporter.record_to_row(
+                        records[0],
+                        friendly_labels=True,
+                        hide_status=True,
+                        hide_links=True,
+                    )
+                ],
+                reporter.detail_fieldnames(hide_status=True, hide_links=True),
+            )
+            reporter.write_html_report(
+                html,
+                records,
+                summary_rows,
+                title="Application Report",
+                hide_status=True,
+                hide_links=True,
+                friendly_labels=True,
+            )
+
+            with details.open(newline="", encoding="utf-8-sig") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertNotIn("status", rows[0])
+            self.assertNotIn("links", rows[0])
+            html_text = html.read_text(encoding="utf-8")
+            self.assertIn("<h1>Application Report</h1>", html_text)
+            self.assertNotIn("<th>Status</th>", html_text)
+            self.assertNotIn("<th>Links</th>", html_text)
 
     def test_reads_mbox_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -435,6 +567,15 @@ class ReporterTests(unittest.TestCase):
                     str(html),
                     "--pdf",
                     str(pdf),
+                    "--after",
+                    "2026-01-01",
+                    "--exclude-org",
+                    "Y Combinator",
+                    "--title",
+                    "Application Report",
+                    "--hide-status",
+                    "--hide-links",
+                    "--friendly-labels",
                     "--include-low-confidence",
                     "--quiet",
                 ]
@@ -444,6 +585,12 @@ class ReporterTests(unittest.TestCase):
         self.assertEqual(args.summary_out, out.parent / "applications_summary.csv")
         self.assertEqual(args.html_out, html)
         self.assertEqual(args.pdf_out, pdf)
+        self.assertEqual(args.after, reporter.parse_filter_date("2026-01-01"))
+        self.assertEqual(args.exclude_org, ["Y Combinator"])
+        self.assertEqual(args.title, "Application Report")
+        self.assertTrue(args.hide_status)
+        self.assertTrue(args.hide_links)
+        self.assertTrue(args.friendly_labels)
         self.assertTrue(args.include_weak)
         self.assertTrue(args.quiet)
 
