@@ -187,17 +187,24 @@ Need the export steps? Start here:
 
 ## PyPI
 
-The PyPI package name is `inbox-report`. Publishing is configured through GitHub Actions trusted publishing, so no PyPI token is needed in the repo.
+The PyPI package name is `inbox-report`. Publishing is local-only; this repository does not ship a GitHub Actions release workflow.
 
-On PyPI's **Trusted Publisher Management** page, add a pending GitHub publisher with:
+Build and validate the release artifacts:
 
-- PyPI Project Name: `inbox-report`
-- Owner: `mara-org`
-- Repository name: `inbox-report`
-- Workflow name: `publish.yml`
-- Environment name: `pypi`
+```bash
+python3 -m pip install -r requirements-dev.txt
+make package
+```
 
-Then publish by pushing a version tag like `v1.0.1`, creating a GitHub Release, or manually running the `publish` workflow from GitHub Actions.
+Upload from your own machine with a PyPI project API token:
+
+```bash
+export TWINE_USERNAME=__token__
+export TWINE_PASSWORD=pypi-...
+make publish
+```
+
+Do not commit PyPI tokens, paste them into chat, or store them in GitHub repository settings.
 
 ## Outputs
 
