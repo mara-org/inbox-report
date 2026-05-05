@@ -37,7 +37,9 @@ make demo
 
 That creates a fake mailbox and writes demo outputs under `.demo/`.
 
-If you are using a real inbox, read the [Export Guide](docs/export-guide.md) first.
+![Demo report preview](docs/assets/demo-report.png)
+
+If you are new to Python or mailbox exports, start with [Quickstart For Students](QUICKSTART.md). If you are using a real inbox, read the [Export Guide](docs/export-guide.md) first.
 
 Useful commands:
 
@@ -56,13 +58,16 @@ make agent-check
 
 Python 3.9+ is supported.
 
+The core CSV and HTML flow uses Python's standard library. You can run the script directly without installing runtime packages:
+
 ```bash
 git clone https://github.com/mara-org/inbox-report.git
 cd inbox-report
-python3 -m pip install -r requirements.txt
+python3 inbox_application_reporter.py --version
+python3 inbox_application_reporter.py /path/to/Mail.mbox --no-pdf
 ```
 
-Local package install:
+Install the local package with optional PDF support:
 
 ```bash
 python3 -m pip install -e ".[pdf]"
@@ -76,7 +81,7 @@ python3 -m pip install "inbox-report[pdf]"
 inbox-report --version
 ```
 
-The core CSV/HTML flow uses Python's standard library. PDF output uses `reportlab`; Arabic shaping in the PDF uses `arabic-reshaper` and `python-bidi`.
+PDF output uses `reportlab`; Arabic shaping in the PDF uses `arabic-reshaper` and `python-bidi`. `requirements.txt` installs those optional PDF dependencies for local development.
 
 ## Usage
 
@@ -152,6 +157,7 @@ inbox-report /path/to/Mail.mbox \
   --exclude-org "Misk Launchpad" \
   --title "Application Report" \
   --friendly-labels \
+  --redact \
   --hide-status \
   --hide-links
 ```
@@ -162,10 +168,16 @@ Useful report options:
 - `--exclude-org "Name"`: remove a guessed organization from outputs; repeat the flag for multiple organizations.
 - `--title "Application Report"`: set the HTML/PDF title. The default title is `Application Report`.
 - `--friendly-labels`: use readable labels like `Co-op training`, `Application received`, and `Needs review`.
+- `--redact`: hide private email addresses, links, application references, subjects, matched terms, and snippets in shareable outputs.
 - `--hide-status`: remove status columns and status summaries from CSV, HTML, and PDF outputs.
 - `--hide-links`: remove extracted links from detailed CSV, HTML, and PDF outputs.
 
 When an email includes a reference such as `Job Requisition`, `Application ID`, `Req ID`, `ID: 446503`, `رقم الطلب`, or `رقم التقديم`, the details CSV includes it in `application_reference`.
+
+The details CSV also includes:
+
+- `deadline`: a rough extracted due date when the message says `deadline`, `due`, `by`, `before`, or Arabic equivalents.
+- `next_action`: a student-friendly next step such as complete an assessment, upload a document, prepare for an interview, or track the application.
 
 Short aliases are also supported for scripts and agents:
 
@@ -197,17 +209,17 @@ The pipeline is:
 4. Match application signals across English and Arabic term sets.
 5. Apply negative filters for common false positives such as store orders, newsletters, social digests, policy emails, discounts, shipping, and invoices.
 6. Infer application type, status, confidence, and review bucket.
-7. Write machine-readable CSV outputs and human-readable HTML/PDF reports.
+7. Extract rough deadlines and next actions.
+8. Write machine-readable CSV outputs, a student action summary, and human-readable HTML/PDF reports.
 
 The classifier favors precision in strict mode. Direct application confirmations, ATS domains, recruiting senders, role context, and status phrases increase confidence. Weak keyword matches are excluded by default and only appear when `--include-weak` is used.
 
 Need the export steps? Start here:
 
+- [Quickstart For Students](QUICKSTART.md)
 - [Export Guide](docs/export-guide.md)
 - [How It Works](docs/how-it-works.md)
 - [PyPI Publishing](docs/pypi-publishing.md)
-- [Roadmap](docs/roadmap.md)
-- [LinkedIn Post Draft](docs/linkedin-post.md)
 
 ## PyPI
 
@@ -234,7 +246,8 @@ Do not commit PyPI tokens, paste them into chat, or store them in GitHub reposit
 
 - `applications.csv`: every matched email with sender, date, subject, guessed organization, application type, status, confidence, review bucket, links, matched terms, and snippet.
 - `applications_summary.csv`: one row per guessed organization with counts, first/last seen dates, status counts, type counts, review counts, domains, and latest subject.
-- `applications_report.html`: browser-friendly report grouped by organization.
+- `student_summary.csv`: student-first next-step list sorted by action priority, deadline, organization, and date.
+- `applications_report.html`: browser-friendly report with a student action summary and organization details.
 - `applications_report.pdf`: PDF report when optional PDF dependencies are installed.
 
 ## Security And Privacy Model

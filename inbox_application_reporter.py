@@ -738,6 +738,40 @@ REFERENCE_PATTERNS = [
     (r"رقم\s+(?:الطلب|التقديم|الوظيفة|الإعلان|الاعلان)\s*[:#-]?\s*([A-Za-z0-9\u0660-\u0669][A-Za-z0-9\u0660-\u0669._/-]{1,40})", "رقم الطلب"),
 ]
 
+DEADLINE_PATTERNS = [
+    r"\b(?:deadline|due|by|before|no later than)\s*[:\-]?\s*([A-Za-z]{3,9}\s+\d{1,2}(?:,\s*\d{4})?)",
+    r"\b(?:deadline|due|by|before|no later than)\s*[:\-]?\s*(\d{4}-\d{1,2}-\d{1,2})",
+    r"\b(?:deadline|due|by|before|no later than)\s*[:\-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
+    r"(?:الموعد النهائي|آخر موعد|اخر موعد|قبل)\s*[:\-]?\s*([\u0600-\u06FFA-Za-z0-9 /\-،,]{3,40})",
+]
+
+STUDENT_SUMMARY_FIELDNAMES = [
+    "priority",
+    "next_step",
+    "organization_guess",
+    "status",
+    "application_type",
+    "deadline",
+    "date",
+    "subject",
+    "application_reference",
+    "review_bucket",
+    "confidence",
+]
+
+STATUS_PRIORITIES = {
+    "action_required": (1, "Act now"),
+    "interview": (2, "Prepare"),
+    "offer_or_accepted": (3, "Decide"),
+    "start_or_onboarding": (4, "Onboarding"),
+    "under_review": (5, "Waiting"),
+    "submitted_or_received": (6, "Waiting"),
+    "ineligible": (7, "Closed"),
+    "closed_or_full": (8, "Closed"),
+    "rejected": (9, "Closed"),
+    "possible_application": (10, "Review"),
+}
+
 URL_RE = re.compile(r"https?://[^\s<>\")\]]+", re.IGNORECASE)
 TAG_RE = re.compile(r"<[^>]+>")
 SPACE_RE = re.compile(r"\s+")
@@ -766,6 +800,8 @@ class ApplicationEmail:
     subject: str
     application_type: str
     application_reference: str
+    deadline: str
+    next_action: str
     status: str
     confidence: str
     review_bucket: str
@@ -948,6 +984,45 @@ def extract_application_reference(text: str) -> str:
     return " | ".join(references)
 
 
+def extract_deadline(text: str) -> str:
+    for pattern in DEADLINE_PATTERNS:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return clip_text(match.group(1).strip(" .,:;()[]\n\t"), 60)
+    return ""
+
+
+def infer_next_action(text: str, status: str, review_bucket: str) -> str:
+    lowered = text.lower()
+    if status == "action_required":
+        if find_terms(lowered, ["assessment", "test", "اختبار"]):
+            return "Complete the assessment or test"
+        if find_terms(lowered, ["upload", "attach", "إرفاق", "ارفاق", "رفع"]):
+            return "Upload the requested document"
+        if find_terms(lowered, ["login", "sign in", "سجل دخول", "تسجيل الدخول"]):
+            return "Sign in and check the portal"
+        return "Review the email and complete the requested step"
+    if status == "interview":
+        return "Prepare for the interview and confirm the time"
+    if status == "offer_or_accepted":
+        return "Review the offer and reply before any deadline"
+    if status == "start_or_onboarding":
+        return "Complete onboarding and save start details"
+    if status == "under_review":
+        return "Wait, but track the application"
+    if status == "submitted_or_received":
+        return "Track the application and watch for updates"
+    if status in {"rejected", "ineligible", "closed_or_full"}:
+        return "Mark closed and keep the record"
+    if review_bucket == "needs_review":
+        return "Manually review before trusting this row"
+    return "Review the application record"
+
+
+def redact_value(value: str, replacement: str = "[redacted]") -> str:
+    return replacement if value else ""
+
+
 def display_application_type(value: str, friendly_labels: bool = False) -> str:
     if not friendly_labels:
         return value
@@ -1115,6 +1190,7 @@ def message_to_record(message: Message, include_weak: bool = False) -> Applicati
     matched_terms = ", ".join(sorted(set(matched_application_terms + matched_ats_terms)))
     application_type = infer_application_type(searchable)
     application_reference = extract_application_reference(searchable)
+    deadline = extract_deadline(searchable)
     confidence = infer_confidence(
         searchable,
         status,
@@ -1122,6 +1198,7 @@ def message_to_record(message: Message, include_weak: bool = False) -> Applicati
         matched_ats_terms,
         links,
     )
+    review_bucket = infer_review_bucket(application_type, status, confidence)
 
     return ApplicationEmail(
         date=parse_date(message.get("Date")),
@@ -1132,9 +1209,11 @@ def message_to_record(message: Message, include_weak: bool = False) -> Applicati
         subject=subject,
         application_type=application_type,
         application_reference=application_reference,
+        deadline=deadline,
+        next_action=infer_next_action(searchable, status, review_bucket),
         status=status,
         confidence=confidence,
-        review_bucket=infer_review_bucket(application_type, status, confidence),
+        review_bucket=review_bucket,
         matched_terms=matched_terms,
         links=links,
         snippet=snippet,
@@ -1196,6 +1275,52 @@ def build_summary(
     return sorted(summary_rows, key=lambda row: row["organization_guess"].lower())
 
 
+def build_student_summary(
+    records: list[ApplicationEmail],
+    friendly_labels: bool = False,
+    redact: bool = False,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for record in records:
+        priority_number, priority_label = STATUS_PRIORITIES.get(
+            record.status, (99, "Review")
+        )
+        subject = redact_value(record.subject) if redact else record.subject
+        reference = (
+            redact_value(record.application_reference)
+            if redact
+            else record.application_reference
+        )
+        rows.append(
+            {
+                "priority": f"{priority_number}. {priority_label}",
+                "next_step": record.next_action,
+                "organization_guess": record.organization_guess,
+                "status": display_status(record.status, friendly_labels),
+                "application_type": display_application_type(
+                    record.application_type, friendly_labels
+                ),
+                "deadline": record.deadline,
+                "date": record.date,
+                "subject": subject,
+                "application_reference": reference,
+                "review_bucket": display_review_bucket(
+                    record.review_bucket, friendly_labels
+                ),
+                "confidence": record.confidence,
+            }
+        )
+    return sorted(
+        rows,
+        key=lambda row: (
+            int(row["priority"].split(".", 1)[0]),
+            row["deadline"] or "9999",
+            row["organization_guess"].lower(),
+            row["date"],
+        ),
+    )
+
+
 def detail_fieldnames(hide_status: bool = False, hide_links: bool = False) -> list[str]:
     fieldnames = list(ApplicationEmail.__dataclass_fields__.keys())
     if hide_status:
@@ -1227,12 +1352,20 @@ def record_to_row(
     friendly_labels: bool = False,
     hide_status: bool = False,
     hide_links: bool = False,
+    redact: bool = False,
 ) -> dict[str, str]:
     row = record.__dict__.copy()
     row["application_type"] = display_application_type(
         record.application_type, friendly_labels
     )
     row["review_bucket"] = display_review_bucket(record.review_bucket, friendly_labels)
+    if redact:
+        row["sender_email"] = redact_value(record.sender_email)
+        row["application_reference"] = redact_value(record.application_reference)
+        row["subject"] = redact_value(record.subject)
+        row["matched_terms"] = redact_value(record.matched_terms)
+        row["links"] = redact_value(record.links)
+        row["snippet"] = redact_value(record.snippet)
     if not hide_status:
         row["status"] = display_status(record.status, friendly_labels)
     else:
@@ -1250,6 +1383,7 @@ def write_html_report(
     hide_status: bool = False,
     hide_links: bool = False,
     friendly_labels: bool = False,
+    redact: bool = False,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -1276,6 +1410,34 @@ def write_html_report(
           <p>Strict mode rejected weak keyword matches. If you expected results, rerun with <code>--include-weak</code> and manually review the noisy audit list.</p>
         </section>
         """
+
+    student_rows = build_student_summary(
+        records,
+        friendly_labels=True if friendly_labels else False,
+        redact=redact,
+    )
+
+    def render_action_row(row: dict[str, str]) -> str:
+        status_cell = "" if hide_status else f"<td>{esc(row['status'])}</td>"
+        return (
+            "<tr>"
+            f"<td>{esc(row['priority'])}</td>"
+            f"<td dir=\"auto\">{esc(row['next_step'])}</td>"
+            f"<td dir=\"auto\">{esc(row['organization_guess'])}</td>"
+            f"<td>{esc(row['deadline'])}</td>"
+            f"{status_cell}"
+            f"<td>{esc(row['review_bucket'])}</td>"
+            f"<td dir=\"auto\">{esc(row['subject'])}</td>"
+            "</tr>"
+        )
+
+    action_html = "\n".join(render_action_row(row) for row in student_rows[:50])
+    privacy_note = (
+        "<p class=\"privacy\">Redacted mode is on. Private email addresses, links, "
+        "references, matched terms, subjects, and snippets are hidden.</p>"
+        if redact
+        else "<p class=\"privacy\">This local report may contain private email addresses, links, references, and message text. Share it carefully.</p>"
+    )
 
     summary_html = "\n".join(
         "<tr>"
@@ -1315,6 +1477,12 @@ def write_html_report(
                     f"<a href=\"{esc(link)}\">link {index}</a>"
                     for index, link in enumerate(links, start=1)
                 )
+            reference = redact_value(record.application_reference) if redact else record.application_reference
+            subject = redact_value(record.subject) if redact else record.subject
+            sender_email = redact_value(record.sender_email) if redact else record.sender_email
+            snippet = redact_value(record.snippet) if redact else record.snippet
+            if redact:
+                rendered_links = redact_value(record.links)
             status_cell = ""
             if not hide_status:
                 status_cell = f"<td><span class=\"status\">{esc(display_status(record.status, friendly_labels))}</span></td>"
@@ -1325,14 +1493,16 @@ def write_html_report(
                 "<tr>"
                 f"<td>{esc(record.date)}</td>"
                 f"<td>{esc(display_application_type(record.application_type, friendly_labels))}</td>"
-                f"<td>{esc(record.application_reference)}</td>"
+                f"<td>{esc(reference)}</td>"
+                f"<td>{esc(record.deadline)}</td>"
+                f"<td dir=\"auto\">{esc(record.next_action)}</td>"
                 f"{status_cell}"
                 f"<td>{esc(record.confidence)}</td>"
                 f"<td>{esc(display_review_bucket(record.review_bucket, friendly_labels))}</td>"
-                f"<td dir=\"auto\">{esc(record.subject)}</td>"
-                f"<td dir=\"auto\">{esc(record.sender_name)}<br><small>{esc(record.sender_email)}</small></td>"
+                f"<td dir=\"auto\">{esc(subject)}</td>"
+                f"<td dir=\"auto\">{esc(record.sender_name)}<br><small>{esc(sender_email)}</small></td>"
                 f"{links_cell}"
-                f"<td dir=\"auto\">{esc(record.snippet)}</td>"
+                f"<td dir=\"auto\">{esc(snippet)}</td>"
                 "</tr>"
             )
         status_header = "" if hide_status else "<th>Status</th>"
@@ -1347,6 +1517,8 @@ def write_html_report(
                     <th>Date</th>
                     <th>Type</th>
                     <th>Reference</th>
+                    <th>Deadline</th>
+                    <th>Next Action</th>
                     {status_header}
                     <th>Confidence</th>
                     <th>Review</th>
@@ -1377,6 +1549,7 @@ def write_html_report(
     h1 {{ font-size: 28px; margin: 0 0 4px; }}
     h2 {{ border-bottom: 1px solid #e5e7eb; font-size: 20px; margin-top: 32px; padding-bottom: 6px; }}
     .meta {{ color: #4b5563; margin: 0 0 20px; }}
+    .privacy {{ background: #fff7ed; border: 1px solid #fed7aa; margin: 18px 0; padding: 10px 12px; }}
     .empty {{ background: #f9fafb; border: 1px solid #e5e7eb; margin: 20px 0; padding: 14px 16px; }}
     .empty h2 {{ border: 0; margin: 0 0 6px; padding: 0; }}
     .empty p {{ margin: 0; }}
@@ -1400,13 +1573,35 @@ def write_html_report(
       body {{ margin: 18mm; }}
       section {{ break-inside: avoid; }}
     }}
+    @media (max-width: 760px) {{
+      body {{ margin: 16px; }}
+      table {{ display: block; overflow-x: auto; }}
+      th, td {{ min-width: 120px; }}
+    }}
   </style>
 </head>
 <body>
   <h1>{esc(title)}</h1>
   <p class="meta">Generated {esc(generated_at)}. Found {len(records)} likely application emails across {len(summary_rows)} organizations.</p>
+  {privacy_note}
   <div class="pills">{status_items}</div>
   {empty_state}
+
+  <h2>Student Action Summary</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Priority</th>
+        <th>Next Step</th>
+        <th>Organization</th>
+        <th>Deadline</th>
+        {'' if hide_status else '<th>Status</th>'}
+        <th>Review</th>
+        <th>Subject</th>
+      </tr>
+    </thead>
+    <tbody>{action_html}</tbody>
+  </table>
 
   <h2>Organization Summary</h2>
   <table>
@@ -1485,6 +1680,7 @@ def write_pdf_report(
     hide_status: bool = False,
     hide_links: bool = False,
     friendly_labels: bool = False,
+    redact: bool = False,
 ) -> bool:
     try:
         from reportlab.lib import colors
@@ -1563,6 +1759,10 @@ def write_pdf_report(
         pdf_paragraph(
             f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}. "
             f"Found {len(records)} likely application emails across {len(summary_rows)} organizations.",
+            styles["ReportBody"],
+        ),
+        pdf_paragraph(
+            "Redacted mode is on." if redact else "This local report may contain private mailbox data. Share it carefully.",
             styles["ReportBody"],
         ),
         Spacer(1, 10),
@@ -1664,21 +1864,29 @@ def write_pdf_report(
         flowables.append(pdf_paragraph(organization, styles["SectionTitle"]))
         for record in sorted(items, key=lambda item: item.date):
             links = split_links(record.links)
+            reference = redact_value(record.application_reference) if redact else record.application_reference
+            subject = redact_value(record.subject) if redact else record.subject
+            sender_email = redact_value(record.sender_email) if redact else record.sender_email
+            snippet = redact_value(record.snippet) if redact else record.snippet
             detail_lines = [
                 f"Date: {record.date}",
                 f"Type: {display_application_type(record.application_type, friendly_labels)}",
-                f"Reference: {record.application_reference or 'not found'}",
+                f"Reference: {reference or 'not found'}",
+                f"Deadline: {record.deadline or 'not found'}",
+                f"Next action: {record.next_action}",
                 f"Confidence: {record.confidence}",
                 f"Review: {display_review_bucket(record.review_bucket, friendly_labels)}",
-                f"Subject: {record.subject}",
-                f"From: {record.sender_name} <{record.sender_email}>",
+                f"Subject: {subject}",
+                f"From: {record.sender_name} <{sender_email}>",
             ]
             if not hide_status:
                 detail_lines.insert(2, f"Status: {display_status(record.status, friendly_labels)}")
-            if links and not hide_links:
+            if links and not hide_links and not redact:
                 detail_lines.append(f"Links: {clip_text(' | '.join(links), 180)}")
-            if record.snippet:
-                detail_lines.append(f"Snippet: {clip_text(record.snippet, 320)}")
+            elif record.links and not hide_links and redact:
+                detail_lines.append("Links: [redacted]")
+            if snippet:
+                detail_lines.append(f"Snippet: {clip_text(snippet, 320)}")
 
             detail_table = Table(
                 [[pdf_paragraph(line, styles["ReportSmall"])] for line in detail_lines],
@@ -1848,6 +2056,8 @@ def resolve_output_paths(args: argparse.Namespace) -> argparse.Namespace:
     output_dir = args.out.parent
     if args.summary_out is None:
         args.summary_out = output_dir / "applications_summary.csv"
+    if args.student_summary_out is None:
+        args.student_summary_out = output_dir / "student_summary.csv"
     if args.html_out is None:
         args.html_out = output_dir / "applications_report.html"
     if args.pdf_out is None:
@@ -1858,7 +2068,10 @@ def resolve_output_paths(args: argparse.Namespace) -> argparse.Namespace:
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Find likely job/coop application emails in an mbox or eml export.",
-        epilog="mood: ابي اتوظظظظظظفففففف",
+        epilog=(
+            "examples: inbox-report /path/to/Mail.mbox --friendly-labels | "
+            "inbox-report /path/to/Mail.mbox --include-weak --redact"
+        ),
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     parser.add_argument(
@@ -1880,6 +2093,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=None,
         help="Organization summary CSV output path; defaults next to --out",
+    )
+    parser.add_argument(
+        "--student-summary-out",
+        dest="student_summary_out",
+        type=Path,
+        default=None,
+        help="Student next-step CSV output path; defaults next to --out",
     )
     parser.add_argument(
         "--html-out",
@@ -1944,6 +2164,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Use user-friendly labels for application types, statuses, and review buckets",
     )
     parser.add_argument(
+        "--redact",
+        action="store_true",
+        help="Hide private email addresses, links, references, subjects, matched terms, and snippets in shareable outputs",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="Only write output files; suppress normal completion messages",
@@ -1969,6 +2194,7 @@ def main() -> int:
             friendly_labels=args.friendly_labels,
             hide_status=args.hide_status,
             hide_links=args.hide_links,
+            redact=args.redact,
         )
         for record in records
     ]
@@ -1977,11 +2203,21 @@ def main() -> int:
         friendly_labels=args.friendly_labels,
         hide_status=args.hide_status,
     )
+    student_summary_rows = build_student_summary(
+        records,
+        friendly_labels=args.friendly_labels,
+        redact=args.redact,
+    )
     write_csv(args.out, detail_rows, detail_fieldnames(args.hide_status, args.hide_links))
     write_csv(
         args.summary_out,
         summary_rows,
         summary_fieldnames(args.hide_status),
+    )
+    write_csv(
+        args.student_summary_out,
+        student_summary_rows,
+        STUDENT_SUMMARY_FIELDNAMES,
     )
     write_html_report(
         args.html_out,
@@ -1991,6 +2227,7 @@ def main() -> int:
         hide_status=args.hide_status,
         hide_links=args.hide_links,
         friendly_labels=args.friendly_labels,
+        redact=args.redact,
     )
 
     wrote_pdf = False
@@ -2003,6 +2240,7 @@ def main() -> int:
             hide_status=args.hide_status,
             hide_links=args.hide_links,
             friendly_labels=args.friendly_labels,
+            redact=args.redact,
         )
 
     if not args.quiet:
@@ -2016,6 +2254,7 @@ def main() -> int:
             )
         print(f"details: {args.out}")
         print(f"summary: {args.summary_out}")
+        print(f"student summary: {args.student_summary_out}")
         print(f"html: {args.html_out}")
         if args.no_pdf:
             print("pdf: skipped")
