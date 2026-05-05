@@ -16,6 +16,7 @@ build/
 *.mbox.lock
 applications.csv
 applications_summary.csv
+student_summary.csv
 applications_report.html
 applications_report.pdf
 details.csv

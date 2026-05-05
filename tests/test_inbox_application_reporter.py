@@ -242,6 +242,63 @@ class ReporterTests(unittest.TestCase):
         assert record is not None
         self.assertIn("987654", record.application_reference)
 
+    def test_extracts_deadline_and_next_action(self) -> None:
+        msg = make_message(
+            "SmartRecruiters <noreply@smartrecruiters.com>",
+            "Action required for your internship application",
+            "Please complete your assessment by May 15, 2026.",
+        )
+
+        record = reporter.message_to_record(msg)
+
+        self.assertIsNotNone(record)
+        assert record is not None
+        self.assertEqual(record.deadline, "May 15, 2026")
+        self.assertEqual(record.next_action, "Complete the assessment or test")
+
+    def test_redacted_rows_hide_private_fields(self) -> None:
+        msg = make_message(
+            "Talent <jobs@futurebank.example>",
+            "Action required for your graduate program application",
+            "Please complete your assessment: https://futurebank.example/assessment",
+        )
+        record = reporter.message_to_record(msg)
+
+        self.assertIsNotNone(record)
+        assert record is not None
+        row = reporter.record_to_row(record, redact=True)
+
+        self.assertEqual(row["sender_email"], "[redacted]")
+        self.assertEqual(row["subject"], "[redacted]")
+        self.assertEqual(row["links"], "[redacted]")
+        self.assertEqual(row["snippet"], "[redacted]")
+
+    def test_student_summary_prioritizes_action_items(self) -> None:
+        action_msg = make_message(
+            "Talent <jobs@futurebank.example>",
+            "Action required for your graduate program application",
+            "Please complete your assessment by 2026-05-15.",
+        )
+        waiting_msg = make_message(
+            "Careers <jobs@keepco.example>",
+            "Application received",
+            "Thank you for applying to our internship.",
+        )
+        records = [
+            record
+            for record in (
+                reporter.message_to_record(action_msg),
+                reporter.message_to_record(waiting_msg),
+            )
+            if record is not None
+        ]
+
+        rows = reporter.build_student_summary(records, friendly_labels=True)
+
+        self.assertEqual(rows[0]["priority"], "1. Act now")
+        self.assertEqual(rows[0]["status"], "Action required")
+        self.assertEqual(rows[0]["deadline"], "2026-05-15")
+
     def test_platform_sender_uses_real_company_from_body(self) -> None:
         msg = make_message(
             "Workday <noreply@myworkdayjobs.com>",
@@ -576,6 +633,7 @@ class ReporterTests(unittest.TestCase):
                     "--hide-status",
                     "--hide-links",
                     "--friendly-labels",
+                    "--redact",
                     "--include-low-confidence",
                     "--quiet",
                 ]
@@ -583,6 +641,7 @@ class ReporterTests(unittest.TestCase):
 
         self.assertEqual(args.out, out)
         self.assertEqual(args.summary_out, out.parent / "applications_summary.csv")
+        self.assertEqual(args.student_summary_out, out.parent / "student_summary.csv")
         self.assertEqual(args.html_out, html)
         self.assertEqual(args.pdf_out, pdf)
         self.assertEqual(args.after, reporter.parse_filter_date("2026-01-01"))
@@ -591,6 +650,7 @@ class ReporterTests(unittest.TestCase):
         self.assertTrue(args.hide_status)
         self.assertTrue(args.hide_links)
         self.assertTrue(args.friendly_labels)
+        self.assertTrue(args.redact)
         self.assertTrue(args.include_weak)
         self.assertTrue(args.quiet)
 

@@ -1,0 +1,34 @@
+name: False positive
+description: Report a synthetic email that Inbox Report matched but should ignore.
+title: "[false positive] "
+labels:
+  - classifier
+  - false-positive
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste real emails, names, phone numbers, mailbox exports, private links, or generated reports from a real inbox. Use a tiny synthetic example that keeps the same pattern.
+  - type: textarea
+    id: synthetic_email
+    attributes:
+      label: Synthetic email
+      description: Provide fake sender, subject, and body text that reproduces the problem.
+      placeholder: |
+        From: Store <no-reply@example.test>
+        Subject: Order application received
+        Body: Your order was received...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Explain why this should not be treated as an application email.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command used
+      placeholder: inbox-report sample.mbox --include-weak

@@ -1,0 +1,55 @@
+name: False negative
+description: Report a synthetic application email that Inbox Report missed.
+title: "[false negative] "
+labels:
+  - classifier
+  - false-negative
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste real emails, names, phone numbers, mailbox exports, private links, or generated reports from a real inbox. Use a tiny synthetic example that keeps the same pattern.
+  - type: textarea
+    id: synthetic_email
+    attributes:
+      label: Synthetic email
+      description: Provide fake sender, subject, and body text that should have matched.
+      placeholder: |
+        From: Careers <jobs@example.test>
+        Subject: Training application received
+        Body: Thank you for applying...
+    validations:
+      required: true
+  - type: dropdown
+    id: expected_type
+    attributes:
+      label: Expected application type
+      options:
+        - coop
+        - tamheer
+        - internship
+        - graduate_program
+        - job
+        - training
+        - career_portal
+        - unknown_application
+  - type: dropdown
+    id: expected_status
+    attributes:
+      label: Expected status
+      options:
+        - submitted_or_received
+        - under_review
+        - action_required
+        - interview
+        - offer_or_accepted
+        - start_or_onboarding
+        - ineligible
+        - closed_or_full
+        - rejected
+        - possible_application
+  - type: textarea
+    id: command
+    attributes:
+      label: Command used
+      placeholder: inbox-report sample.mbox
