@@ -143,6 +143,30 @@ inbox-report /path/to/Mail.mbox \
   --pdf-out report.pdf
 ```
 
+Filter and simplify reports:
+
+```bash
+inbox-report /path/to/Mail.mbox \
+  --after 2026-01-01 \
+  --exclude-org "Y Combinator" \
+  --exclude-org "Misk Launchpad" \
+  --title "Application Report" \
+  --friendly-labels \
+  --hide-status \
+  --hide-links
+```
+
+Useful report options:
+
+- `--after YYYY-MM-DD`: include only messages on or after a date.
+- `--exclude-org "Name"`: remove a guessed organization from outputs; repeat the flag for multiple organizations.
+- `--title "Application Report"`: set the HTML/PDF title. The default title is `Application Report`.
+- `--friendly-labels`: use readable labels like `Co-op training`, `Application received`, and `Needs review`.
+- `--hide-status`: remove status columns and status summaries from CSV, HTML, and PDF outputs.
+- `--hide-links`: remove extracted links from detailed CSV, HTML, and PDF outputs.
+
+When an email includes a reference such as `Job Requisition`, `Application ID`, `Req ID`, `ID: 446503`, `رقم الطلب`, or `رقم التقديم`, the details CSV includes it in `application_reference`.
+
 Short aliases are also supported for scripts and agents:
 
 ```bash
