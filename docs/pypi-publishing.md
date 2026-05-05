@@ -2,7 +2,9 @@
 
 The package metadata is ready for PyPI project `inbox-report` at the current version in `pyproject.toml`.
 
-Preferred publishing uses PyPI Trusted Publishers with GitHub Actions. Do not paste a PyPI password or token into chat, issues, commits, or workflow files.
+Publishing is local-only. This repository intentionally does not include a GitHub Actions release workflow.
+
+Do not paste a PyPI password or token into chat, issues, commits, or repository settings.
 
 ## Local Build
 
@@ -30,31 +32,9 @@ inbox-report --version
 make demo
 ```
 
-## Trusted Publisher Setup
+## Local Upload
 
-In PyPI's **Publishing** page, add a pending GitHub trusted publisher:
-
-```text
-PyPI Project Name: inbox-report
-Owner: mara-org
-Repository name: inbox-report
-Workflow name: publish.yml
-Environment name: pypi
-```
-
-Use `inbox-report` as the repository name, not the full GitHub URL.
-
-The workflow file must exist at:
-
-```text
-.github/workflows/publish.yml
-```
-
-After adding the pending publisher in PyPI, publish by pushing a version tag such as `v1.0.1`, creating a GitHub Release, or manually running the `publish` workflow from GitHub Actions.
-
-## Token Fallback
-
-Trusted publishing is preferred. If you still need to publish from a local shell, use a PyPI API token stored locally as an environment variable:
+Create a PyPI project API token from your PyPI account, then export it only in your local shell:
 
 ```bash
 export TWINE_USERNAME=__token__
@@ -62,7 +42,17 @@ export TWINE_PASSWORD=pypi-...
 make publish
 ```
 
-Do not commit tokens. Do not paste tokens into issues, PRs, or chat.
+`make publish` rebuilds the package, runs `twine check`, and uploads the files in `dist/`.
+
+After the upload, verify the published version:
+
+```bash
+python3 -m pip index versions inbox-report
+python3 -m pip install --upgrade "inbox-report[pdf]"
+inbox-report --version
+```
+
+Do not commit tokens. Do not paste tokens into issues, PRs, chat, or screenshots.
 
 ## Name
 
