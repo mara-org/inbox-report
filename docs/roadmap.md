@@ -20,7 +20,7 @@ This is what would make the tool stronger without turning it into a risky mailbo
 
 ## Packaging
 
-- Publish `inbox-report` to PyPI through trusted publishing.
+- Publish `inbox-report` to PyPI from a local release shell.
 - Support `pipx install "inbox-report[pdf]"`.
 - Keep the console command:
 
