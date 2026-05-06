@@ -8,9 +8,9 @@ No inbox login. No email password. No cloud upload. No external API. No LLM.
 
 ## Watch The Demo
 
-[![Watch the Inbox Report demo](docs/assets/mara-inbox-report-demo-poster.png)](docs/assets/mara-inbox-report-demo.mp4)
+![Inbox Report demo](docs/assets/mara-inbox-report-demo.gif)
 
-Short demo: [watch the MP4](docs/assets/mara-inbox-report-demo.mp4). The generated report looks like this:
+Autoplay preview above. Prefer video controls? [Watch the MP4](docs/assets/mara-inbox-report-demo.mp4). The generated report looks like this:
 
 ![Demo report preview](docs/assets/demo-report.png)
 
