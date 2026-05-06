@@ -89,3 +89,9 @@ make check
 - [Contributing](CONTRIBUTING.md)
 
 Mailbox exports and generated reports can contain sensitive personal data. Keep real `.mbox`, CSV, HTML, and PDF files private unless you intentionally redact and share them.
+
+## About
+
+This project is maintained under the [mara-org](https://github.com/mara-org) organization on GitHub.
+
+Created by [@gqnxx](https://github.com/gqnxx) (0x78) · Improved by [@justAbdulaziz10](https://github.com/justAbdulaziz10) (abdulaziz)
