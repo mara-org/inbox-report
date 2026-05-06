@@ -92,6 +92,6 @@ Mailbox exports and generated reports can contain sensitive personal data. Keep 
 
 ## About
 
-This project is maintained under the [mara-org](https://github.com/mara-org) organization on GitHub.
+This project is maintained under the [mara](https://github.com/mara-org) on GitHub.
 
-Created by [@gqnxx](https://github.com/gqnxx) (0x78) · Improved by [@justAbdulaziz10](https://github.com/justAbdulaziz10) (abdulaziz)
+Created by [@gqnxx](https://github.com/gqnxx) · Improved by [@justAbdulaziz10](https://github.com/justAbdulaziz10)
