@@ -6,6 +6,12 @@ Inbox Report reads `.mbox` and `.eml` exports, detects likely job, COOP, interns
 
 No inbox login. No email password. No cloud upload. No external API. No LLM.
 
+## Watch The Demo
+
+[![Watch the Inbox Report demo](docs/assets/mara-inbox-report-demo-poster.png)](docs/assets/mara-inbox-report-demo.mp4)
+
+Short demo: [watch the MP4](docs/assets/mara-inbox-report-demo.mp4). The generated report looks like this:
+
 ![Demo report preview](docs/assets/demo-report.png)
 
 ## Quick Start
