@@ -42,6 +42,10 @@ If the report is empty but you expected applications, run audit mode:
 python3 inbox_application_reporter.py /path/to/Mail.mbox --include-weak --friendly-labels --no-pdf
 ```
 
+## Use With An Agent
+
+Want Codex, Claude Code, Cursor, or another local agent to run it for you? Give it [AGENT_HANDOFF.md](AGENT_HANDOFF.md). The handoff prompt tells the agent to run the demo, ask for your local export path, generate the report, and avoid passwords or uploads.
+
 ## Outputs
 
 - `student_summary.csv`: next-step list sorted by action priority.
@@ -78,6 +82,7 @@ make check
 ## More
 
 - [Quickstart For Students](QUICKSTART.md)
+- [Agent Handoff](AGENT_HANDOFF.md)
 - [Export Guide](docs/export-guide.md)
 - [How It Works](docs/how-it-works.md)
 - [PyPI Publishing](docs/pypi-publishing.md)

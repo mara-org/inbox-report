@@ -4,7 +4,7 @@ REPORT_DIR ?= reports
 INPUT ?=
 SAMPLE_MBOX := $(OUT_DIR)/sample.mbox
 
-.PHONY: help install install-dev check test demo report audit path-smoke agent-check package publish clean
+.PHONY: help install install-dev check test demo report audit agent-prompt path-smoke agent-check package publish clean
 
 help:
 	@/bin/echo 'Inbox Application Reporter'
@@ -17,6 +17,7 @@ help:
 	@/bin/echo '  make demo      build a fake mailbox and generate reports'
 	@/bin/echo '  make report INPUT=/path/to/export run on a real local export'
 	@/bin/echo '  make audit INPUT=/path/to/export include noisy weak matches'
+	@/bin/echo '  make agent-prompt print the copy-paste prompt for local coding agents'
 	@/bin/echo '  make path-smoke verify paths with spaces and Arabic text'
 	@/bin/echo '  make agent-check run check, demo, and package'
 	@/bin/echo '  make package   build local PyPI artifacts'
@@ -78,6 +79,9 @@ audit:
 		--html-out "$(REPORT_DIR)/applications_report.html" \
 		--pdf-out "$(REPORT_DIR)/applications_report.pdf"
 	@/bin/echo 'audit outputs are in $(REPORT_DIR)/'
+
+agent-prompt:
+	@/bin/cat AGENT_HANDOFF.md
 
 path-smoke:
 	/bin/mkdir -p "$(OUT_DIR)/مسار تجريبي"
