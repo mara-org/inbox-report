@@ -639,6 +639,8 @@ class ReporterTests(unittest.TestCase):
                 ]
             )
 
+        self.assertEqual(args.command, "report")
+        self.assertEqual(args.input, Path("/tmp/mail.mbox"))
         self.assertEqual(args.out, out)
         self.assertEqual(args.summary_out, out.parent / "applications_summary.csv")
         self.assertEqual(args.student_summary_out, out.parent / "student_summary.csv")
@@ -653,6 +655,34 @@ class ReporterTests(unittest.TestCase):
         self.assertTrue(args.redact)
         self.assertTrue(args.include_weak)
         self.assertTrue(args.quiet)
+
+    def test_report_command_defaults_to_timestamped_report_dir(self) -> None:
+        args = reporter.parse_args(["report", "/tmp/mail.mbox", "--no-pdf"])
+
+        self.assertEqual(args.command, "report")
+        self.assertEqual(args.input, Path("/tmp/mail.mbox"))
+        self.assertEqual(args.out.name, "applications.csv")
+        self.assertEqual(args.summary_out.name, "applications_summary.csv")
+        self.assertEqual(args.student_summary_out.name, "student_summary.csv")
+        self.assertEqual(args.html_out.name, "applications_report.html")
+        self.assertIn("report", str(args.out.parent))
+
+    def test_audit_and_redact_commands_set_safer_defaults(self) -> None:
+        audit_args = reporter.parse_args(["audit", "/tmp/mail.mbox", "--no-pdf"])
+        redact_args = reporter.parse_args(["redact", "/tmp/mail.mbox", "--no-pdf"])
+
+        self.assertTrue(audit_args.include_weak)
+        self.assertTrue(redact_args.redact)
+
+    def test_shareable_alias_sets_redaction(self) -> None:
+        args = reporter.parse_args(["report", "/tmp/mail.mbox", "--shareable"])
+
+        self.assertTrue(args.redact)
+
+    def test_agent_prompt_command_parses(self) -> None:
+        args = reporter.parse_args(["agent-prompt"])
+
+        self.assertEqual(args.command, "agent-prompt")
 
     def test_directory_without_supported_files_gives_clear_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -13,7 +13,7 @@ No inbox login. No email password. No cloud upload. No external API. No LLM.
 ```bash
 git clone https://github.com/mara-org/inbox-report.git
 cd inbox-report
-make demo
+python3 inbox_application_reporter.py demo
 ```
 
 That creates a fake mailbox and demo reports under `.demo/`.
@@ -21,25 +21,31 @@ That creates a fake mailbox and demo reports under `.demo/`.
 For a real Gmail export:
 
 ```bash
-python3 inbox_application_reporter.py /path/to/Takeout/Mail --friendly-labels --no-pdf
+python3 inbox_application_reporter.py report /path/to/Takeout/Mail --open
 ```
 
 For a single MBOX file:
 
 ```bash
-python3 inbox_application_reporter.py /path/to/Mail.mbox --friendly-labels --no-pdf
+python3 inbox_application_reporter.py report /path/to/Mail.mbox --open
 ```
 
 For a folder of EML files:
 
 ```bash
-python3 inbox_application_reporter.py /path/to/eml-folder --friendly-labels --no-pdf
+python3 inbox_application_reporter.py report /path/to/eml-folder --open
 ```
 
 If the report is empty but you expected applications, run audit mode:
 
 ```bash
-python3 inbox_application_reporter.py /path/to/Mail.mbox --include-weak --friendly-labels --no-pdf
+python3 inbox_application_reporter.py audit /path/to/Mail.mbox --open
+```
+
+Prefer questions instead of flags:
+
+```bash
+python3 inbox_application_reporter.py wizard
 ```
 
 ## Use With An Agent
@@ -57,7 +63,7 @@ Want Codex, Claude Code, Cursor, or another local agent to run it for you? Give 
 Use redacted mode before sharing reports:
 
 ```bash
-python3 inbox_application_reporter.py /path/to/Mail.mbox --redact --friendly-labels --no-pdf
+python3 inbox_application_reporter.py redact /path/to/Mail.mbox --open
 ```
 
 ## Install
