@@ -40,14 +40,7 @@ test:
 	$(PYTHON) -m unittest discover -s tests -v
 
 demo:
-	/bin/mkdir -p $(OUT_DIR)
-	$(PYTHON) tests/make_sample_mbox.py $(SAMPLE_MBOX)
-	$(PYTHON) inbox_application_reporter.py $(SAMPLE_MBOX) \
-		--out $(OUT_DIR)/applications.csv \
-		--summary-out $(OUT_DIR)/applications_summary.csv \
-		--student-summary-out $(OUT_DIR)/student_summary.csv \
-		--html-out $(OUT_DIR)/applications_report.html \
-		--pdf-out $(OUT_DIR)/applications_report.pdf
+	$(PYTHON) inbox_application_reporter.py demo --report-dir "$(OUT_DIR)"
 	@/bin/echo 'demo outputs are in $(OUT_DIR)/'
 
 report:
@@ -57,12 +50,7 @@ report:
 		exit 2; \
 	fi
 	/bin/mkdir -p "$(REPORT_DIR)"
-	$(PYTHON) inbox_application_reporter.py "$(INPUT)" \
-		--out "$(REPORT_DIR)/applications.csv" \
-		--summary-out "$(REPORT_DIR)/applications_summary.csv" \
-		--student-summary-out "$(REPORT_DIR)/student_summary.csv" \
-		--html-out "$(REPORT_DIR)/applications_report.html" \
-		--pdf-out "$(REPORT_DIR)/applications_report.pdf"
+	$(PYTHON) inbox_application_reporter.py report "$(INPUT)" --report-dir "$(REPORT_DIR)"
 	@/bin/echo 'report outputs are in $(REPORT_DIR)/'
 
 audit:
@@ -72,16 +60,11 @@ audit:
 		exit 2; \
 	fi
 	/bin/mkdir -p "$(REPORT_DIR)"
-	$(PYTHON) inbox_application_reporter.py "$(INPUT)" --include-weak \
-		--out "$(REPORT_DIR)/applications.csv" \
-		--summary-out "$(REPORT_DIR)/applications_summary.csv" \
-		--student-summary-out "$(REPORT_DIR)/student_summary.csv" \
-		--html-out "$(REPORT_DIR)/applications_report.html" \
-		--pdf-out "$(REPORT_DIR)/applications_report.pdf"
+	$(PYTHON) inbox_application_reporter.py audit "$(INPUT)" --report-dir "$(REPORT_DIR)"
 	@/bin/echo 'audit outputs are in $(REPORT_DIR)/'
 
 agent-prompt:
-	@/bin/cat AGENT_HANDOFF.md
+	@$(PYTHON) inbox_application_reporter.py agent-prompt
 
 path-smoke:
 	/bin/mkdir -p "$(OUT_DIR)/مسار تجريبي"

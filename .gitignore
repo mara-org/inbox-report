@@ -5,6 +5,7 @@ __pycache__/
 venv/
 env/
 .demo/
+.demo-screenshot/
 reports/
 private-input/
 dist/

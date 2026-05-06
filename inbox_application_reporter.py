@@ -13,19 +13,22 @@ import html
 import mailbox
 import re
 import sys
+import webbrowser
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from email.header import decode_header
-from email.message import Message
+from email.message import EmailMessage, Message
 from email.parser import BytesParser
 from email.policy import default
-from email.utils import getaddresses, parsedate_to_datetime
+from email.utils import format_datetime, getaddresses, parsedate_to_datetime
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
 
 
 VERSION = "1.0.1"
+DEFAULT_REPORT_ROOT = Path("reports")
+AGENT_HANDOFF_PATH = Path(__file__).resolve().with_name("AGENT_HANDOFF.md")
 
 APPLICATION_TERMS = [
     "training opportunity",
@@ -2052,6 +2055,16 @@ def filter_records(
     return filtered
 
 
+def slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or "report"
+
+
+def default_report_dir(label: str = "application-report") -> Path:
+    timestamp = datetime.now().strftime("%Y-%m-%d-%H%M")
+    return DEFAULT_REPORT_ROOT / f"{timestamp}-{slugify(label)}"
+
+
 def resolve_output_paths(args: argparse.Namespace) -> argparse.Namespace:
     output_dir = args.out.parent
     if args.summary_out is None:
@@ -2065,20 +2078,19 @@ def resolve_output_paths(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Find likely job/coop application emails in an mbox or eml export.",
-        epilog=(
-            "examples: inbox-report /path/to/Mail.mbox --friendly-labels | "
-            "inbox-report /path/to/Mail.mbox --include-weak --redact"
-        ),
-    )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
-    parser.add_argument(
-        "input",
-        type=Path,
-        help="Path to exported .mbox file, .eml file, or folder of .eml files",
-    )
+def configure_report_dir(args: argparse.Namespace) -> argparse.Namespace:
+    if getattr(args, "report_dir", None) is None:
+        return args
+    report_dir = args.report_dir
+    args.out = report_dir / "applications.csv"
+    args.summary_out = report_dir / "applications_summary.csv"
+    args.student_summary_out = report_dir / "student_summary.csv"
+    args.html_out = report_dir / "applications_report.html"
+    args.pdf_out = report_dir / "applications_report.pdf"
+    return args
+
+
+def add_report_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--out",
         "--output",
@@ -2116,6 +2128,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=Path,
         default=None,
         help="Organized PDF report output path; defaults next to --out",
+    )
+    parser.add_argument(
+        "--report-dir",
+        type=Path,
+        default=None,
+        help="Write all outputs to this folder",
     )
     parser.add_argument(
         "--no-pdf",
@@ -2156,7 +2174,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--hide-links",
         action="store_true",
-        help="Hide extracted links from detailed CSV/HTML/PDF outputs",
+        help="Hide extracted links from detailed CSV, HTML, and PDF outputs",
     )
     parser.add_argument(
         "--friendly-labels",
@@ -2165,21 +2183,146 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--redact",
+        "--shareable",
+        dest="redact",
         action="store_true",
-        help="Hide private email addresses, links, references, subjects, matched terms, and snippets in shareable outputs",
+        help="Hide private email addresses, links, references, subjects, matched terms, and snippets",
+    )
+    parser.add_argument(
+        "--open",
+        dest="open_report",
+        action="store_true",
+        help="Open the HTML report in the default browser after writing it",
     )
     parser.add_argument(
         "--quiet",
         action="store_true",
         help="Only write output files; suppress normal completion messages",
     )
-    return resolve_output_paths(parser.parse_args(argv))
 
 
-def main() -> int:
-    args = parse_args()
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Find likely job/coop application emails in an mbox or eml export.",
+        epilog=(
+            "examples: inbox-report report /path/to/Mail.mbox --open | "
+            "inbox-report wizard | inbox-report agent-prompt"
+        ),
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
+    subparsers = parser.add_subparsers(dest="command")
+
+    report_parser = subparsers.add_parser("report", help="Run a strict report")
+    report_parser.add_argument("input", type=Path, help="Path to .mbox, .eml, or export folder")
+    add_report_options(report_parser)
+    report_parser.set_defaults(command="report")
+
+    audit_parser = subparsers.add_parser("audit", help="Run noisy audit mode")
+    audit_parser.add_argument("input", type=Path, help="Path to .mbox, .eml, or export folder")
+    add_report_options(audit_parser)
+    audit_parser.set_defaults(command="audit", include_weak=True)
+
+    redact_parser = subparsers.add_parser("redact", help="Run a shareable redacted report")
+    redact_parser.add_argument("input", type=Path, help="Path to .mbox, .eml, or export folder")
+    add_report_options(redact_parser)
+    redact_parser.set_defaults(command="redact", redact=True)
+
+    demo_parser = subparsers.add_parser("demo", help="Create fake mailbox demo reports")
+    demo_parser.add_argument("--report-dir", type=Path, default=Path(".demo"))
+    demo_parser.add_argument("--open", dest="open_report", action="store_true")
+    demo_parser.add_argument("--quiet", action="store_true")
+    demo_parser.set_defaults(command="demo", no_pdf=True)
+
+    wizard_parser = subparsers.add_parser("wizard", help="Ask a few questions and run a report")
+    wizard_parser.set_defaults(command="wizard")
+
+    agent_parser = subparsers.add_parser("agent-prompt", help="Print the copy-paste agent prompt")
+    agent_parser.set_defaults(command="agent-prompt")
+
+    if argv is None:
+        raw_args = sys.argv[1:]
+    else:
+        raw_args = list(argv)
+    legacy_commands = {"report", "audit", "redact", "demo", "wizard", "agent-prompt"}
+    if raw_args and raw_args[0] not in legacy_commands and not raw_args[0].startswith("-"):
+        raw_args = ["report", *raw_args]
+
+    args = parser.parse_args(raw_args)
+    if args.command is None:
+        parser.print_help()
+        raise SystemExit(0)
+    if args.command in {"report", "audit", "redact"}:
+        uses_default_outputs = (
+            args.out == Path("applications.csv")
+            and args.summary_out is None
+            and args.student_summary_out is None
+            and args.html_out is None
+            and args.pdf_out is None
+        )
+        if args.report_dir is None and uses_default_outputs:
+            args.report_dir = default_report_dir(args.command)
+        return resolve_output_paths(configure_report_dir(args))
+    return args
+
+
+def print_path_help(path: Path) -> None:
+    print(f"input not found: {path}", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("For Gmail Takeout, look for one of these:", file=sys.stderr)
+    print("  Takeout/Mail", file=sys.stderr)
+    print("  Takeout/Mail/All mail Including Spam and Trash.mbox", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("For desktop clients, use a .mbox file or a folder of .eml files.", file=sys.stderr)
+
+
+def print_report_summary(
+    records: list[ApplicationEmail],
+    args: argparse.Namespace,
+    wrote_pdf: bool,
+) -> None:
+    mode = "audit/include-weak" if args.include_weak else "strict"
+    if args.redact:
+        mode = f"{mode}, redacted"
+    print(f"done: found {len(records)} likely application emails")
+    print(f"mode: {mode}")
+    if not records and not args.include_weak:
+        print(
+            "hint: no strong application confirmations found. "
+            "Use `inbox-report audit <path>` only when you want a noisy review list."
+        )
+
+    status_counts = Counter(record.status for record in records)
+    review_counts = Counter(record.review_bucket for record in records)
+    print("")
+    print("quick counts:")
+    print(f"  action required: {status_counts.get('action_required', 0)}")
+    print(f"  interviews: {status_counts.get('interview', 0)}")
+    print(
+        "  offers/onboarding: "
+        f"{status_counts.get('offer_or_accepted', 0) + status_counts.get('start_or_onboarding', 0)}"
+    )
+    print(f"  under review: {status_counts.get('under_review', 0)}")
+    print(f"  needs review: {review_counts.get('needs_review', 0)}")
+
+    print("")
+    print("open:")
+    print(f"  html: {args.html_out}")
+    print("")
+    print("files:")
+    print(f"  student summary: {args.student_summary_out}")
+    print(f"  details: {args.out}")
+    print(f"  summary: {args.summary_out}")
+    if args.no_pdf:
+        print("  pdf: skipped")
+    elif wrote_pdf:
+        print(f"  pdf: {args.pdf_out}")
+    else:
+        print("  pdf: skipped because reportlab is not installed", file=sys.stderr)
+
+
+def run_report(args: argparse.Namespace) -> int:
     if not args.input.exists():
-        print(f"input not found: {args.input}", file=sys.stderr)
+        print_path_help(args.input)
         return 2
 
     try:
@@ -2243,26 +2386,155 @@ def main() -> int:
             redact=args.redact,
         )
 
+    if args.open_report:
+        webbrowser.open(args.html_out.resolve().as_uri())
     if not args.quiet:
-        mode = "audit/include-weak" if args.include_weak else "strict"
-        print(f"done: found {len(records)} likely application emails")
-        print(f"mode: {mode}")
-        if not records and not args.include_weak:
-            print(
-                "hint: no strong application confirmations found. "
-                "Use --include-weak only when you want a noisy audit list."
-            )
-        print(f"details: {args.out}")
-        print(f"summary: {args.summary_out}")
-        print(f"student summary: {args.student_summary_out}")
-        print(f"html: {args.html_out}")
-        if args.no_pdf:
-            print("pdf: skipped")
-        elif wrote_pdf:
-            print(f"pdf: {args.pdf_out}")
-        else:
-            print("pdf: skipped because reportlab is not installed", file=sys.stderr)
+        print_report_summary(records, args, wrote_pdf)
     return 0
+
+
+def make_sample_message(sender: str, subject: str, body: str, day: int) -> EmailMessage:
+    message = EmailMessage()
+    message["From"] = sender
+    message["To"] = "candidate@example.com"
+    message["Subject"] = subject
+    message["Date"] = format_datetime(datetime(2026, 5, day, 12, 0, tzinfo=timezone.utc))
+    message.set_content(body)
+    return message
+
+
+def write_sample_mbox(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        path.unlink()
+    box = mailbox.mbox(path)
+    try:
+        box.add(
+            make_sample_message(
+                "Careers Team <noreply@examplecorp.com>",
+                "Thank you for applying to ExampleCorp COOP Training",
+                "تم استلام طلبك لبرنامج التدريب التعاوني. Track it here: https://careers.examplecorp.com/app/123",
+                1,
+            )
+        )
+        box.add(
+            make_sample_message(
+                "Talent <jobs@futurebank.example>",
+                "Action required for your graduate program application",
+                "Please complete your assessment by 2026-05-15: https://futurebank.example/assessment",
+                2,
+            )
+        )
+        box.add(
+            make_sample_message(
+                "طاقات <noreply@taqat.sa>",
+                "تحديث على طلب برنامج تمهير",
+                "نعتذر، لم تستوفِ شروط الأهلية للتدريب على رأس العمل.",
+                3,
+            )
+        )
+        box.add(
+            make_sample_message(
+                "Friend <friend@example.net>",
+                "Lunch?",
+                "Are you free later today?",
+                4,
+            )
+        )
+        box.flush()
+    finally:
+        box.close()
+
+
+def run_demo(args: argparse.Namespace) -> int:
+    sample_path = args.report_dir / "sample.mbox"
+    write_sample_mbox(sample_path)
+    if not args.quiet:
+        print(sample_path)
+
+    report_args = argparse.Namespace(
+        input=sample_path,
+        out=args.report_dir / "applications.csv",
+        summary_out=args.report_dir / "applications_summary.csv",
+        student_summary_out=args.report_dir / "student_summary.csv",
+        html_out=args.report_dir / "applications_report.html",
+        pdf_out=args.report_dir / "applications_report.pdf",
+        include_weak=False,
+        after=None,
+        exclude_org=[],
+        title="Application Report",
+        hide_status=False,
+        hide_links=False,
+        friendly_labels=True,
+        redact=False,
+        no_pdf=True,
+        open_report=args.open_report,
+        quiet=args.quiet,
+    )
+    return run_report(report_args)
+
+
+def prompt_yes_no(question: str, default: bool = False) -> bool:
+    suffix = "Y/n" if default else "y/N"
+    answer = input(f"{question} [{suffix}] ").strip().lower()
+    if not answer:
+        return default
+    return answer in {"y", "yes"}
+
+
+def run_wizard() -> int:
+    print("Inbox Report wizard")
+    print("No login, no password, no upload. Use a local .mbox, Takeout/Mail folder, or .eml folder.")
+    input_path = Path(input("Export path: ").strip().strip("\"'"))
+    include_weak = prompt_yes_no("Run noisy audit mode?", default=False)
+    redact = prompt_yes_no("Make outputs shareable/redacted?", default=False)
+    no_pdf = not prompt_yes_no("Try to create a PDF?", default=False)
+    open_report = prompt_yes_no("Open the HTML report when done?", default=True)
+    report_dir = default_report_dir("wizard")
+    args = argparse.Namespace(
+        input=input_path,
+        out=report_dir / "applications.csv",
+        summary_out=report_dir / "applications_summary.csv",
+        student_summary_out=report_dir / "student_summary.csv",
+        html_out=report_dir / "applications_report.html",
+        pdf_out=report_dir / "applications_report.pdf",
+        include_weak=include_weak,
+        after=None,
+        exclude_org=[],
+        title="Application Report",
+        hide_status=False,
+        hide_links=False,
+        friendly_labels=True,
+        redact=redact,
+        no_pdf=no_pdf,
+        open_report=open_report,
+        quiet=False,
+    )
+    return run_report(args)
+
+
+def print_agent_prompt() -> int:
+    if AGENT_HANDOFF_PATH.exists():
+        print(AGENT_HANDOFF_PATH.read_text(encoding="utf-8"))
+        return 0
+    print("Agent handoff prompt:", file=sys.stderr)
+    print(
+        "Clone https://github.com/mara-org/inbox-report, run `make demo`, ask me for my "
+        "local mailbox export path, run `inbox-report report \"<EXPORT_PATH>\" --open`, "
+        "and summarize student_summary.csv without exposing private email details."
+    )
+    return 0
+
+
+def main() -> int:
+    args = parse_args()
+    if args.command == "demo":
+        return run_demo(args)
+    if args.command == "wizard":
+        return run_wizard()
+    if args.command == "agent-prompt":
+        return print_agent_prompt()
+    return run_report(args)
 
 
 if __name__ == "__main__":

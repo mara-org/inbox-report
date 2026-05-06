@@ -21,9 +21,8 @@ https://github.com/mara-org/inbox-report
 
 Workflow:
 1. Clone the repo if it is not already available.
-2. Run the demo first with `make demo` if `make` exists. If not, run:
-   `python3 tests/make_sample_mbox.py .demo/sample.mbox`
-   `python3 inbox_application_reporter.py .demo/sample.mbox --no-pdf`
+2. Run the demo first:
+   `python3 inbox_application_reporter.py demo`
 3. Confirm that the demo produced:
    - `.demo/student_summary.csv`
    - `.demo/applications.csv`
@@ -34,16 +33,16 @@ Workflow:
    - a `.mbox` file
    - a folder of `.eml` files
 5. When I give the path, run strict mode first:
-   `python3 inbox_application_reporter.py "<EXPORT_PATH>" --friendly-labels --no-pdf`
+   `python3 inbox_application_reporter.py report "<EXPORT_PATH>"`
 6. Tell me where these files were written:
    - `student_summary.csv`
    - `applications.csv`
    - `applications_summary.csv`
    - `applications_report.html`
 7. If strict mode finds zero rows and I expected applications, ask before running audit mode:
-   `python3 inbox_application_reporter.py "<EXPORT_PATH>" --include-weak --friendly-labels --no-pdf`
+   `python3 inbox_application_reporter.py audit "<EXPORT_PATH>"`
 8. If I want to share results, run redacted mode:
-   `python3 inbox_application_reporter.py "<EXPORT_PATH>" --redact --friendly-labels --no-pdf`
+   `python3 inbox_application_reporter.py redact "<EXPORT_PATH>"`
 9. Summarize the report in plain language:
    - items needing action
    - interviews
@@ -63,7 +62,7 @@ Safety rules:
 ## One-Line Version
 
 ```text
-Clone https://github.com/mara-org/inbox-report, run `make demo`, ask me for my local Gmail Takeout Mail folder or `.mbox` path, run `python3 inbox_application_reporter.py "<EXPORT_PATH>" --friendly-labels --no-pdf`, then summarize `student_summary.csv` without exposing private email details.
+Clone https://github.com/mara-org/inbox-report, run `python3 inbox_application_reporter.py demo`, ask me for my local Gmail Takeout Mail folder or `.mbox` path, run `python3 inbox_application_reporter.py report "<EXPORT_PATH>"`, then summarize `student_summary.csv` without exposing private email details.
 ```
 
 ## Expected Agent Output

@@ -1,69 +1,31 @@
 # PyPI Publishing
 
-The package metadata is ready for PyPI project `inbox-report` at the current version in `pyproject.toml`.
+Package name:
 
-Publishing is local-only. This repository intentionally does not include an automated release workflow.
+```text
+inbox-report
+```
 
-Do not paste a PyPI password or token into chat, issues, commits, or repository settings.
-
-## Local Build
+Build locally:
 
 ```bash
 python3 -m pip install -r requirements-dev.txt
-make package
+make package PYTHON=python3
 ```
 
-That creates:
-
-- `dist/*.tar.gz`
-- `dist/*.whl`
-
-and runs:
-
-```bash
-python3 -m twine check dist/*
-```
-
-## Test Install Locally
-
-```bash
-python3 -m pip install -e ".[pdf]"
-inbox-report --version
-make demo
-```
-
-## Local Upload
-
-Create a PyPI project API token from your PyPI account, then export it only in your local shell:
+Upload locally with a PyPI token:
 
 ```bash
 export TWINE_USERNAME=__token__
 export TWINE_PASSWORD=pypi-...
-make publish
+make publish PYTHON=python3
 ```
 
-`make publish` rebuilds the package, runs `twine check`, and uploads the files in `dist/`.
+Do not commit tokens or paste them into chat, issues, PRs, or screenshots.
 
-After the upload, verify the published version:
+After publishing:
 
 ```bash
-python3 -m pip index versions inbox-report
 python3 -m pip install --upgrade "inbox-report[pdf]"
 inbox-report --version
-```
-
-Do not commit tokens. Do not paste tokens into issues, PRs, chat, or screenshots.
-
-## Name
-
-The package name is:
-
-```text
-inbox-report
-```
-
-The console command remains:
-
-```text
-inbox-report
 ```
